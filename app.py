@@ -47,7 +47,6 @@ def login_screen():
                 success, message, user = auth.register(new_username, email, new_password)
                 if success:
                     st.session_state.current_user = user
-                    st.success(message)
                     st.rerun()
                 else:
                     st.error(message)
@@ -56,6 +55,17 @@ def login_screen():
     if st.button("게스트로 둘러보기", use_container_width=True):
         st.session_state.current_user = Guest()
         st.rerun()
+
+
+def show_site_rating(media):
+    source = "YES24" if media.__class__.__name__ == "Book" else "TMDB"
+    rating = media.site_rating
+    if rating is None:
+        st.caption(f"{source} 평점: 아직 없음")
+        return
+    st.markdown(f"**{source} 평점: {rating:.1f} / 10**")
+    if media.rating_count:
+        st.caption(f"평가 {media.rating_count:,}개")
 
 
 def show_card(media, user, section):
@@ -67,24 +77,57 @@ def show_card(media, user, section):
                 st.image(media.poster_url, use_container_width=True)
         with info_col:
             st.markdown(f"**{media.title}**")
+            show_site_rating(media)
             st.caption(media.summary())
-            if user.can_favorite():
-                favorite_col, rating_col = st.columns([1, 3])
-                with favorite_col:
+            detail_col, favorite_col = st.columns([1, 1])
+            with detail_col:
+                if st.button("상세 보기", key=f"detail_{section}_{media_key}"):
+                    st.session_state.selected_media = media
+                    st.rerun()
+            with favorite_col:
+                if user.can_favorite():
                     if st.button("찜하기", key=f"fav_{section}_{media_key}"):
                         library.add_favorite(user.username, media)
                         st.success("찜 목록에 저장했어요.")
-                with rating_col:
-                    rating = st.select_slider(
-                        "평점", options=[1, 2, 3, 4, 5], value=5,
-                        key=f"rating_{section}_{media_key}",
-                    )
-                    if st.button("평점 저장", key=f"save_{section}_{media_key}"):
-                        library.set_rating(user.username, media, rating)
-                        st.success("평점을 저장했어요.")
-            else:
-                st.button("찜하기", key=f"guest_fav_{section}_{media_key}", disabled=True)
-                st.caption("찜과 평점은 로그인 후 사용할 수 있어요.")
+                else:
+                    st.button("찜하기", key=f"guest_fav_{section}_{media_key}", disabled=True)
+
+
+def show_detail(media, user):
+    if st.button("← 목록으로"):
+        st.session_state.selected_media = None
+        st.rerun()
+
+    st.header(media.title)
+    poster_col, detail_col = st.columns([1, 3])
+    with poster_col:
+        if media.poster_url:
+            st.image(media.poster_url, use_container_width=True)
+    with detail_col:
+        show_site_rating(media)
+        st.write(media.summary())
+        if media.external_url:
+            st.link_button("YES24 상품 페이지 열기", media.external_url)
+
+        if user.can_rate():
+            st.divider()
+            st.subheader("내 평점")
+            rating_key = f"{media.__class__.__name__.lower()}:{media.media_id}"
+            saved_rating = library.get_user_data(user.username).get("ratings", {}).get(rating_key, {})
+            rating = st.select_slider(
+                "1점부터 5점까지 선택하세요",
+                options=[1, 2, 3, 4, 5],
+                value=saved_rating.get("rating", 5),
+                key=f"detail_rating_{rating_key}",
+            )
+            if st.button("내 평점 저장", key=f"detail_save_{rating_key}"):
+                library.set_rating(user.username, media, rating)
+                st.success("평점을 저장했어요.")
+            if st.button("찜하기", key=f"detail_favorite_{rating_key}"):
+                library.add_favorite(user.username, media)
+                st.success("찜 목록에 저장했어요.")
+        else:
+            st.info("회원으로 로그인하면 이 작품에 평점을 남기고 찜할 수 있어요.")
 
 
 def show_activity(user):
@@ -116,6 +159,9 @@ def show_results(items, user, section):
 
 if "current_user" not in st.session_state:
     st.session_state.current_user = None
+if "selected_media" not in st.session_state:
+    st.session_state.selected_media = None
+
 if st.session_state.current_user is None:
     login_screen()
     st.stop()
@@ -135,7 +181,13 @@ with st.sidebar:
     page = st.radio("메뉴", ["메인", "내 활동"])
     if st.button("로그아웃"):
         st.session_state.current_user = None
+        st.session_state.selected_media = None
         st.rerun()
+
+selected_media = st.session_state.selected_media
+if selected_media is not None:
+    show_detail(selected_media, user)
+    st.stop()
 
 if page == "내 활동":
     if user.can_favorite():
@@ -171,6 +223,7 @@ else:
                     st.warning(f"YES24 API 응답을 확인해 주세요: {error}")
             else:
                 st.info("YES24_API_KEY를 설정하면 베스트셀러를 불러옵니다.")
+
         with series_tab:
             choice = st.radio("드라마 목록", ["인기", "이달의", "급상승"], horizontal=True, label_visibility="collapsed")
             st.subheader(f"{choice} 드라마")
@@ -187,12 +240,20 @@ else:
                     st.error(f"TMDB API 오류: {error}")
             else:
                 st.info("TMDB_API_KEY를 설정하면 드라마 목록을 불러옵니다.")
+
         with movies_tab:
-            st.subheader("인기 영화")
+            choice = st.radio("영화 목록", ["인기", "이달의", "급상승"], horizontal=True, label_visibility="collapsed")
+            st.subheader(f"{choice} 영화")
             if tmdb_key:
                 try:
-                    show_results(tmdb.get_popular("movie"), user, "tmdb_movies")
+                    if choice == "급상승":
+                        items = tmdb.get_trending_movies()
+                    elif choice == "이달의":
+                        items = tmdb.get_movies_this_month()
+                    else:
+                        items = tmdb.get_popular("movie")
+                    show_results(items, user, f"movies_{choice}")
                 except Exception as error:
                     st.error(f"TMDB API 오류: {error}")
             else:
-                st.info("TMDB_API_KEY를 설정하면 인기 영화를 불러옵니다.")
+                st.info("TMDB_API_KEY를 설정하면 영화 목록을 불러옵니다.")

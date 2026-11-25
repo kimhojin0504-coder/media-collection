@@ -2,11 +2,14 @@
 
 
 class Media:
-    def __init__(self, title, overview="", poster_url="", media_id=""):
+    def __init__(self, title, overview="", poster_url="", media_id="", site_rating=None, rating_count=None, external_url=""):
         self.title = title
         self.overview = overview
         self.poster_url = poster_url
         self.media_id = str(media_id)
+        self.site_rating = site_rating
+        self.rating_count = rating_count
+        self.external_url = external_url
 
     def summary(self):
         return self.overview or "소개가 아직 없습니다."
@@ -18,12 +21,15 @@ class Media:
             "poster_url": self.poster_url,
             "media_id": self.media_id,
             "media_type": self.__class__.__name__.lower(),
+            "site_rating": self.site_rating,
+            "rating_count": self.rating_count,
+            "external_url": self.external_url,
         }
 
 
 class Movie(Media):
-    def __init__(self, title, overview="", poster_url="", media_id="", runtime=None):
-        super().__init__(title, overview, poster_url, media_id)
+    def __init__(self, title, overview="", poster_url="", media_id="", runtime=None, site_rating=None, rating_count=None):
+        super().__init__(title, overview, poster_url, media_id, site_rating, rating_count)
         self.runtime = runtime
 
     def summary(self):
@@ -32,8 +38,8 @@ class Movie(Media):
 
 
 class Series(Media):
-    def __init__(self, title, overview="", poster_url="", media_id="", seasons=None, episodes=None):
-        super().__init__(title, overview, poster_url, media_id)
+    def __init__(self, title, overview="", poster_url="", media_id="", seasons=None, episodes=None, site_rating=None, rating_count=None):
+        super().__init__(title, overview, poster_url, media_id, site_rating, rating_count)
         self.seasons = seasons
         self.episodes = episodes
 
@@ -48,8 +54,8 @@ class Series(Media):
 
 
 class Book(Media):
-    def __init__(self, title, overview="", poster_url="", media_id="", author="", publisher="", isbn=""):
-        super().__init__(title, overview, poster_url, media_id)
+    def __init__(self, title, overview="", poster_url="", media_id="", author="", publisher="", isbn="", site_rating=None, external_url=""):
+        super().__init__(title, overview, poster_url, media_id, site_rating, external_url=external_url)
         self.author = author
         self.publisher = publisher
         self.isbn = isbn

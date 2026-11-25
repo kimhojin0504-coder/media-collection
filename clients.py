@@ -33,9 +33,18 @@ class TMDBClient(BaseClient):
     def _make_media(self, item, media_type):
         poster = item.get("poster_path")
         poster_url = f"{self.IMAGE_URL}{poster}" if poster else ""
+        rating = item.get("vote_average")
+        rating = rating if rating and rating > 0 else None
+        rating_count = item.get("vote_count")
         if media_type == "movie":
-            return Movie(item.get("title", "제목 없음"), item.get("overview", ""), poster_url, item.get("id"))
-        return Series(item.get("name", "제목 없음"), item.get("overview", ""), poster_url, item.get("id"))
+            return Movie(
+                item.get("title", "제목 없음"), item.get("overview", ""),
+                poster_url, item.get("id"), site_rating=rating, rating_count=rating_count,
+            )
+        return Series(
+            item.get("name", "제목 없음"), item.get("overview", ""),
+            poster_url, item.get("id"), site_rating=rating, rating_count=rating_count,
+        )
 
     def get_popular(self, media_type="movie"):
         result = self._get(f"/{media_type}/popular")
@@ -45,6 +54,10 @@ class TMDBClient(BaseClient):
         result = self._get("/trending/tv/week")
         return [self._make_media(item, "tv") for item in result.get("results", [])]
 
+    def get_trending_movies(self):
+        result = self._get("/trending/movie/week")
+        return [self._make_media(item, "movie") for item in result.get("results", [])]
+
     def get_series_this_month(self):
         from datetime import date
 
@@ -52,6 +65,21 @@ class TMDBClient(BaseClient):
         first_day = today.replace(day=1).isoformat()
         result = self._get("/discover/tv", {"first_air_date.gte": first_day, "first_air_date.lte": today.isoformat(), "sort_by": "popularity.desc"})
         return [self._make_media(item, "tv") for item in result.get("results", [])]
+
+    def get_movies_this_month(self):
+        from calendar import monthrange
+        from datetime import date
+
+        today = date.today()
+        first_day = today.replace(day=1).isoformat()
+        last_day = today.replace(day=monthrange(today.year, today.month)[1]).isoformat()
+        result = self._get("/discover/movie", {
+            "primary_release_date.gte": first_day,
+            "primary_release_date.lte": last_day,
+            "sort_by": "popularity.desc",
+            "region": "KR",
+        })
+        return [self._make_media(item, "movie") for item in result.get("results", [])]
 
     def search(self, query):
         results = []
@@ -90,11 +118,13 @@ class Yes24Client(BaseClient):
                 author=item.get("author", ""),
                 publisher=item.get("publisher", ""),
                 isbn=item.get("isbn13", item.get("isbn10", "")),
+                site_rating=item.get("starScore"),
+                external_url=item.get("link", ""),
             ))
         return books
 
     def get_popular(self):
-        return self._get_books("/v1/category/bestseller", {"categoryId": "001"})
+        return self._get_books("/v1/category/bestseller", {"categoryId": "001", "detail": "Y"})
 
     def search(self, query):
-        return self._get_books("/v1/goods/itemList", {"query": query})
+        return self._get_books("/v1/goods/itemList", {"query": query, "detail": "Y"})
