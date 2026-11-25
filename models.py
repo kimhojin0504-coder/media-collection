@@ -58,3 +58,33 @@ class Book(Media):
         text = super().summary()
         details = " · ".join(value for value in (self.author, self.publisher) if value)
         return f"{text}\n{details}" if details else text
+
+
+class User:
+    """Base user class. Guests can browse but cannot save activity."""
+
+    def __init__(self, username):
+        self.username = username
+
+    def can_favorite(self):
+        return False
+
+    def can_rate(self):
+        return False
+
+
+class Member(User):
+    def __init__(self, username, email):
+        super().__init__(username)
+        self.email = email
+
+    def can_favorite(self):
+        return True
+
+    def can_rate(self):
+        return True
+
+
+class Guest(User):
+    def __init__(self):
+        super().__init__("게스트")

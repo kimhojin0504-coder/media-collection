@@ -19,11 +19,20 @@ class Library:
     def _write(self, data):
         self.file_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    def get_user_data(self, username):
+        data = self._read()
+        return data.get(username, {"favorites": [], "ratings": {}})
+
     def add_favorite(self, username, media):
         data = self._read()
         user_data = data.setdefault(username, {"favorites": [], "ratings": {}})
         media_data = media.to_dict()
-        if media_data not in user_data["favorites"]:
+        existing = {
+            (item.get("media_type"), str(item.get("media_id")))
+            for item in user_data["favorites"]
+        }
+        media_key = (media_data["media_type"], str(media_data["media_id"]))
+        if media_key not in existing:
             user_data["favorites"].append(media_data)
         self._write(data)
 

@@ -3,79 +3,175 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 
+from auth import AuthService
 from clients import TMDBClient, Yes24Client
 from library import Library
+from models import Guest
 
 
 load_dotenv()
 st.set_page_config(page_title="미디어 컬렉션", page_icon="🎬", layout="wide")
+auth = AuthService()
+library = Library()
+
+
+def login_screen():
+    st.title("🎬 미디어 컬렉션")
+    st.caption("로그인하거나 게스트로 둘러보세요.")
+    login_tab, signup_tab = st.tabs(["로그인", "회원가입"])
+
+    with login_tab:
+        with st.form("login_form"):
+            username = st.text_input("아이디")
+            password = st.text_input("비밀번호", type="password")
+            submitted = st.form_submit_button("로그인", use_container_width=True)
+        if submitted:
+            user = auth.login(username, password)
+            if user:
+                st.session_state.current_user = user
+                st.rerun()
+            else:
+                st.error("아이디 또는 비밀번호를 확인해 주세요.")
+
+    with signup_tab:
+        with st.form("signup_form"):
+            new_username = st.text_input("아이디", key="signup_username")
+            email = st.text_input("이메일", key="signup_email")
+            new_password = st.text_input("비밀번호 (6자 이상)", type="password", key="signup_password")
+            confirm_password = st.text_input("비밀번호 확인", type="password")
+            submitted = st.form_submit_button("회원가입", use_container_width=True)
+        if submitted:
+            if new_password != confirm_password:
+                st.error("비밀번호가 서로 다릅니다.")
+            else:
+                success, message, user = auth.register(new_username, email, new_password)
+                if success:
+                    st.session_state.current_user = user
+                    st.success(message)
+                    st.rerun()
+                else:
+                    st.error(message)
+
+    st.divider()
+    if st.button("게스트로 둘러보기", use_container_width=True):
+        st.session_state.current_user = Guest()
+        st.rerun()
+
+
+def show_card(media, user, section):
+    media_key = f"{media.__class__.__name__.lower()}_{media.media_id or media.title}"
+    with st.container(border=True):
+        image_col, info_col = st.columns([1, 4])
+        with image_col:
+            if media.poster_url:
+                st.image(media.poster_url, use_container_width=True)
+        with info_col:
+            st.markdown(f"**{media.title}**")
+            st.caption(media.summary())
+            if user.can_favorite():
+                favorite_col, rating_col = st.columns([1, 3])
+                with favorite_col:
+                    if st.button("찜하기", key=f"fav_{section}_{media_key}"):
+                        library.add_favorite(user.username, media)
+                        st.success("찜 목록에 저장했어요.")
+                with rating_col:
+                    rating = st.select_slider(
+                        "평점", options=[1, 2, 3, 4, 5], value=5,
+                        key=f"rating_{section}_{media_key}",
+                    )
+                    if st.button("평점 저장", key=f"save_{section}_{media_key}"):
+                        library.set_rating(user.username, media, rating)
+                        st.success("평점을 저장했어요.")
+            else:
+                st.button("찜하기", key=f"guest_fav_{section}_{media_key}", disabled=True)
+                st.caption("찜과 평점은 로그인 후 사용할 수 있어요.")
+
+
+def show_activity(user):
+    st.header("내 활동")
+    activity = library.get_user_data(user.username)
+    st.subheader("찜 목록")
+    favorites = activity.get("favorites", [])
+    if favorites:
+        for item in favorites:
+            st.write(f"**{item.get('title', '제목 없음')}** · {item.get('media_type', '')}")
+    else:
+        st.caption("아직 찜한 작품이 없습니다.")
+    st.subheader("내 평점")
+    ratings = activity.get("ratings", {})
+    if ratings:
+        for item in ratings.values():
+            st.write(f"**{item.get('title', '제목 없음')}** · {item.get('rating', '-')}점")
+    else:
+        st.caption("아직 저장한 평점이 없습니다.")
+
+
+def show_results(items, user, section):
+    if items:
+        for item in items[:10]:
+            show_card(item, user, section)
+    else:
+        st.caption("검색 결과가 없습니다.")
+
+
+if "current_user" not in st.session_state:
+    st.session_state.current_user = None
+if st.session_state.current_user is None:
+    login_screen()
+    st.stop()
+
+user = st.session_state.current_user
 st.title("🎬 미디어 컬렉션")
 st.caption("영화, 드라마, 도서를 찾아보고 나만의 컬렉션을 만들어 보세요.")
-
 tmdb_key = os.getenv("TMDB_API_KEY", "")
 yes24_key = os.getenv("YES24_API_KEY", "")
 tmdb = TMDBClient(tmdb_key)
 yes24 = Yes24Client(yes24_key)
-library = Library()
-
-if "username" not in st.session_state:
-    st.session_state.username = "guest"
-if "page" not in st.session_state:
-    st.session_state.page = "메인"
 
 with st.sidebar:
-    st.subheader("메뉴")
-    page = st.radio("화면", ["메인", "내 활동"], label_visibility="collapsed")
-    st.session_state.page = page
-    st.caption("현재는 게스트 미리보기입니다. 로그인 기능은 다음 단계에서 추가합니다.")
+    st.write(f"사용자: **{user.username}**")
+    if not user.can_favorite():
+        st.caption("게스트 모드 · 찜과 평점은 로그인 후 이용 가능")
+    page = st.radio("메뉴", ["메인", "내 활동"])
+    if st.button("로그아웃"):
+        st.session_state.current_user = None
+        st.rerun()
 
 if page == "내 활동":
-    st.header("내 활동")
-    st.info("찜과 평점 기능은 다음 단계에서 연결할 예정입니다.")
+    if user.can_favorite():
+        show_activity(user)
+    else:
+        st.header("내 활동")
+        st.info("찜 목록과 평점을 보려면 로그인해 주세요.")
 else:
     query = st.text_input("통합 검색", placeholder="영화, 드라마, 도서 제목을 검색하세요")
     if query:
         st.subheader(f"'{query}' 검색 결과")
-        col1, col2 = st.columns(2)
-        with col1:
+        left, right = st.columns(2)
+        with left:
             st.markdown("#### 영화 · 드라마")
             try:
-                results = tmdb.search(query)
-                if results:
-                    for media in results[:10]:
-                        with st.container(border=True):
-                            st.write(f"**{media.title}**")
-                            st.caption(media.summary())
-                else:
-                    st.caption("결과가 없거나 TMDB 키가 설정되지 않았습니다.")
+                show_results(tmdb.search(query), user, "tmdb_search")
             except Exception as error:
                 st.error(f"TMDB 검색 중 오류: {error}")
-        with col2:
+        with right:
             st.markdown("#### 도서")
             try:
-                books = yes24.search(query)
-                if books:
-                    for book in books[:10]:
-                        st.write(f"**{book.title}**")
-                        st.caption(book.summary())
-                else:
-                    st.caption("결과가 없거나 YES24 키가 설정되지 않았습니다.")
+                show_results(yes24.search(query), user, "yes24_search")
             except Exception as error:
                 st.error(f"YES24 검색 중 오류: {error}")
     else:
-        tab_books, tab_series, tab_movies = st.tabs(["인기 도서", "인기 드라마", "인기 영화"])
-        with tab_books:
+        books_tab, series_tab, movies_tab = st.tabs(["인기 도서", "인기 드라마", "인기 영화"])
+        with books_tab:
             st.subheader("YES24 베스트셀러")
             if yes24_key:
                 try:
-                    for book in yes24.get_popular()[:10]:
-                        st.write(f"**{book.title}**")
-                        st.caption(book.summary())
+                    show_results(yes24.get_popular(), user, "yes24_popular")
                 except Exception as error:
                     st.warning(f"YES24 API 응답을 확인해 주세요: {error}")
             else:
-                st.info("YES24_API_KEY를 .env에 설정하면 베스트셀러를 불러옵니다.")
-        with tab_series:
+                st.info("YES24_API_KEY를 설정하면 베스트셀러를 불러옵니다.")
+        with series_tab:
             choice = st.radio("드라마 목록", ["인기", "이달의", "급상승"], horizontal=True, label_visibility="collapsed")
             st.subheader(f"{choice} 드라마")
             if tmdb_key:
@@ -86,21 +182,17 @@ else:
                         items = tmdb.get_series_this_month()
                     else:
                         items = tmdb.get_popular("tv")
-                    for item in items[:10]:
-                        st.write(f"**{item.title}**")
-                        st.caption(item.summary())
+                    show_results(items, user, f"series_{choice}")
                 except Exception as error:
                     st.error(f"TMDB API 오류: {error}")
             else:
-                st.info("TMDB_API_KEY를 .env에 설정하면 드라마 목록을 불러옵니다.")
-        with tab_movies:
+                st.info("TMDB_API_KEY를 설정하면 드라마 목록을 불러옵니다.")
+        with movies_tab:
             st.subheader("인기 영화")
             if tmdb_key:
                 try:
-                    for movie in tmdb.get_popular("movie")[:10]:
-                        st.write(f"**{movie.title}**")
-                        st.caption(movie.summary())
+                    show_results(tmdb.get_popular("movie"), user, "tmdb_movies")
                 except Exception as error:
                     st.error(f"TMDB API 오류: {error}")
             else:
-                st.info("TMDB_API_KEY를 .env에 설정하면 인기 영화를 불러옵니다.")
+                st.info("TMDB_API_KEY를 설정하면 인기 영화를 불러옵니다.")
