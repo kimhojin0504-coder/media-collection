@@ -77,24 +77,24 @@ class Yes24Client(BaseClient):
             timeout=15,
         )
         response.raise_for_status()
-        data = response.json()
-        # YES24 response field names should be confirmed with a real sample response.
-        items = data.get("itemList", data.get("items", []))
+        response_data = response.json().get("data", {})
+        items = response_data.get("items", [])
         books = []
         for item in items:
+            content = item.get("contentDetail") or {}
             books.append(Book(
-                title=item.get("goodsName", item.get("title", "제목 없음")),
-                overview=item.get("description", ""),
-                poster_url=item.get("image", item.get("imageUrl", "")),
-                media_id=item.get("goodsNo", item.get("isbn", "")),
+                title=item.get("title", "제목 없음"),
+                overview=content.get("bookIntroduction") or content.get("bookSummary") or "",
+                poster_url=item.get("cover", ""),
+                media_id=item.get("itemId", item.get("isbn13", "")),
                 author=item.get("author", ""),
                 publisher=item.get("publisher", ""),
-                isbn=item.get("isbn", ""),
+                isbn=item.get("isbn13", item.get("isbn10", "")),
             ))
         return books
 
     def get_popular(self):
-        return self._get_books("/v1/category/bestseller")
+        return self._get_books("/v1/category/bestseller", {"categoryId": "001"})
 
     def search(self, query):
-        return self._get_books("/v1/goods/itemList", {"keyword": query})
+        return self._get_books("/v1/goods/itemList", {"query": query})
